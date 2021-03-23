@@ -16,18 +16,14 @@ def callback( data ):
 
 def main():
     # 接続先を設定
-    node_a = roscore_bridge.MPNode( "http://192.168.1.14:11311", "A" )
-    node_b = roscore_bridge.MPNode( "http://192.168.1.74:11311", "B" )
+    node_a = roscore_bridge.MPNode( "http://127.0.0.1:11311", "A" )
+    node_b = roscore_bridge.MPNode( "http://127.0.0.1:11312", "B" )
 
     # SubscriberとPublisherを用意
     sub_a = node_a.Subscriber("chatter", String, 1, callback )
     sub_b = node_b.Subscriber("chatter", String, 1 )
 
     pub_a = node_a.Publisher("chatter2", String )
-
-    # ノードを開始
-    node_a.start_node()
-    node_b.start_node()
 
     while not rospy.is_shutdown():
         # キューからデータを取り出す
