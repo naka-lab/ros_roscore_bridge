@@ -117,16 +117,14 @@ class MPNode():
 
     def Subscriber( self, name, type_, que_size=10, callback=None ):
         sub = MPSubscriber( self, name, type_, que_size )
-
-        args_dict = { "name":sub.topic_name, "data_class":sub.topic_type }
-
         self.mp_subscribers[sub.id] = sub
 
         if callback:
             t = threading.Thread( target=self.th_call_user_callback, args=(callback, sub) )
             t.setDaemon(True)
             t.start()
-
+        
+        args_dict = { "name":sub.topic_name, "data_class":sub.topic_type }
         self.put_cmd_queue( sub.id, CMD_SUB_NEW, args_dict)
         return sub
 
