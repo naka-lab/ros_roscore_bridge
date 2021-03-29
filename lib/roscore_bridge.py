@@ -20,36 +20,18 @@ CMD_SUB_UNREGISTER = 102
 
 CMD_NODE_SHUDDOWN = 200
 
-id_counter = 0
 
 
-class MPPublisher():
-    def __init__(self, node, name, type_):
-        global id_counter
+class MPNodeClient():
+    id_counter = 0
+    def __init__(self, node, que_size=0 ):
         self.node = node
-        self.topic_name = name
-        self.topic_type = type_
-        self.id = id_counter
+        self.queue = queue.Queue()
 
-        id_counter += 1
+        self.id = MPNodeClient.id_counter
+        MPNodeClient.id_counter += 1
 
-    def publish(self, data):
-        #self.node.publish( self, data )
-        self.node.put_cmd_queue( self.id, CMD_PUB_PUBLISH, {"data":data} )
-
-class MPSubscriber():
-    def __init__(self, node, name, type_, que_size ):
-        global id_counter
-
-        self.node = node
-        self.topic_name = name
-        self.topic_type = type_
-        self.que_size = que_size
-        self.queue = multiprocessing.Queue()
-        self.id = id_counter
-        id_counter += 1
-
-    def put_message(self, data):
+    def _put_message(self, data):
         self.queue.put( data )
         while self.queue.qsize()>self.que_size:
             try:
@@ -57,8 +39,30 @@ class MPSubscriber():
             except queue.Empty:
                 pass
 
-    def get_message(self, timeout=None):
+    def _get_message(self, timeout=None):
         return self.queue.get(timeout=timeout)
+
+
+class MPPublisher(MPNodeClient):
+    def __init__(self, node, name, type_):
+        super(MPPublisher, self).__init__(node)
+        self.topic_name = name
+        self.topic_type = type_
+
+
+    def publish(self, data):
+        self.node.put_cmd_queue( self.id, CMD_PUB_PUBLISH, {"data":data} )
+
+
+class MPSubscriber(MPNodeClient):
+    def __init__(self, node, name, type_, que_size ):
+        super(MPSubscriber, self).__init__(node, que_size)
+        self.topic_name = name
+        self.topic_type = type_
+        self.que_size = que_size
+
+    def get_message(self, timeout=None):
+        return self._get_message( timeout )
 
     def unregister(self):
         self.node.put_cmd_queue( self.id, CMD_SUB_UNREGISTER, {} )
@@ -99,7 +103,7 @@ class MPNode():
 
             if sub_id in self.mp_subscribers:
                 #print("データ転送", sub_id)
-                self.mp_subscribers[sub_id].put_message( data )
+                self.mp_subscribers[sub_id]._put_message( data )
             else:
                 print("th_transfer_subscribed_data: id does not exits. ")
 
@@ -115,7 +119,7 @@ class MPNode():
             #print("callback")
             user_callback( data )
 
-    def Subscriber( self, name, type_, que_size=10, callback=None ):
+    def Subscriber( self, name, type_, que_size=10, callback=None, **kwargs ):
         sub = MPSubscriber( self, name, type_, que_size )
         self.mp_subscribers[sub.id] = sub
 
@@ -123,15 +127,19 @@ class MPNode():
             t = threading.Thread( target=self.th_call_user_callback, args=(callback, sub) )
             t.setDaemon(True)
             t.start()
-        
-        args_dict = { "name":sub.topic_name, "data_class":sub.topic_type }
+
+        args_dict = {}
+        args_dict.update( kwargs )
+        args_dict.update( { "name":sub.topic_name, "data_class":sub.topic_type } )
         self.put_cmd_queue( sub.id, CMD_SUB_NEW, args_dict)
         return sub
 
-    def Publisher( self, name, type_, queue_size=10 ):
+    def Publisher( self, name, type_, queue_size=10, **kwargs ):
         pub = MPPublisher( self, name, type_ )
 
-        args_dict = { "name":pub.topic_name,  "data_class":pub.topic_type , "queue_size":queue_size}
+        args_dict = {}
+        args_dict.update( kwargs )
+        args_dict.update( { "name":pub.topic_name,  "data_class":pub.topic_type , "queue_size":queue_size} )
         self.put_cmd_queue( pub.id, CMD_PUB_NEW, args_dict )
 
         return pub
@@ -170,6 +178,7 @@ class MPNode():
                 self.subscribers[sender_id] = sub
             elif cmd==CMD_PUB_NEW:
                 print("new publisher: ", sender_id, args_dict )
+                print("args", args_dict)
                 pub = rospy.Publisher( **args_dict )
                 self.subscribers[sender_id] = pub
             elif cmd==CMD_SUB_UNREGISTER:
@@ -197,9 +206,10 @@ def main():
     sub_a = node_a.Subscriber("chatter", String, 1, callback )
     sub_b = node_b.Subscriber("chatter", String, 1 )
 
-    pub_a = node_a.Publisher("chatter2", String )
+    pub_a = node_a.Publisher("chatter2", String, latch=True )
 
     # 動的にノードの設定が変えられるかテスト
+    """
     for i in range(5):
         print("unregister")
         sub_b.unregister()
@@ -215,7 +225,7 @@ def main():
 
         pub_a = node_a.Publisher("chatter2", String )
         time.sleep(2)
-
+    """
 
     while not rospy.is_shutdown():
         # キューからデータを取り出す
