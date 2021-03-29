@@ -70,14 +70,13 @@ class MPSubscriber(MPNodeClient):
 
 class MPNode():
     def __init__( self, master_uri, node_name ):
-        self.queue_cmd = multiprocessing.Queue()
-        self.queue_sub = multiprocessing.Queue()
+        self.queue_from_client = multiprocessing.Queue()
+        self.queue_to_client = multiprocessing.Queue()
 
         self.node_name = node_name
         self.master_uri = master_uri
 
-        self.subscribers = {}
-        self.mp_subscribers = {}
+        self.mp_node_clients = {}
         self.publishers = {}
 
         t = threading.Thread( target=self.th_transfer_subscribed_data )
@@ -91,19 +90,19 @@ class MPNode():
     def cb_data_recieved(self, data, args):
         sub_id = args[0] 
         #print("キュー追加", self.queue_sub.qsize())
-        self.queue_sub.put( (sub_id, data) )
+        self.queue_to_client.put( (sub_id, data) )
 
     # 受信したデータを各MPSubscriberへ転送するスレッド（メインプロセスで実行）
     def th_transfer_subscribed_data(self):
         while not rospy.is_shutdown():
             try:
-                sub_id, data = self.queue_sub.get(timeout=1)
+                sub_id, data = self.queue_to_client.get(timeout=1)
             except queue.Empty:
                 continue
 
-            if sub_id in self.mp_subscribers:
+            if sub_id in self.mp_node_clients:
                 #print("データ転送", sub_id)
-                self.mp_subscribers[sub_id]._put_message( data )
+                self.mp_node_clients[sub_id]._put_message( data )
             else:
                 print("th_transfer_subscribed_data: id does not exits. ")
 
@@ -121,7 +120,7 @@ class MPNode():
 
     def Subscriber( self, name, type_, que_size=10, callback=None, **kwargs ):
         sub = MPSubscriber( self, name, type_, que_size )
-        self.mp_subscribers[sub.id] = sub
+        self.mp_node_clients[sub.id] = sub
 
         if callback:
             t = threading.Thread( target=self.th_call_user_callback, args=(callback, sub) )
@@ -153,10 +152,12 @@ class MPNode():
         
 
     def put_cmd_queue(self, sender_id, cmd, args_dict=None):
-        self.queue_cmd.put( (sender_id, cmd, args_dict) )
+        self.queue_from_client.put( (sender_id, cmd, args_dict) )
 
     def run( self ):
         print(self.node_name, "開始")
+
+        ros_objects = {}
 
         # ros_master_uriを書き換えてnodeを実行
         os.environ['ROS_MASTER_URI'] = self.master_uri
@@ -166,7 +167,7 @@ class MPNode():
         while not rospy.is_shutdown():
             # キューにデータがあれば実行
             try:
-                sender_id, cmd, args_dict = self.queue_cmd.get(timeout=1)
+                sender_id, cmd, args_dict = self.queue_from_client.get(timeout=1)
             except queue.Empty:
                 continue
 
@@ -175,17 +176,17 @@ class MPNode():
                 args_dict["callback"] = self.cb_data_recieved
                 args_dict["callback_args"] = (sender_id,)
                 sub = rospy.Subscriber( **args_dict )
-                self.subscribers[sender_id] = sub
+                ros_objects[sender_id] = sub
             elif cmd==CMD_PUB_NEW:
                 print("new publisher: ", sender_id, args_dict )
                 print("args", args_dict)
                 pub = rospy.Publisher( **args_dict )
-                self.subscribers[sender_id] = pub
+                ros_objects[sender_id] = pub
             elif cmd==CMD_SUB_UNREGISTER:
-                self.subscribers[sender_id].unregister()
+                ros_objects[sender_id].unregister()
             elif cmd==CMD_PUB_PUBLISH:
                 #print("publish: ", sender_id, args_dict )
-                self.subscribers[sender_id].publish( args_dict["data"] )
+                ros_objects[sender_id].publish( args_dict["data"] )
             elif cmd==CMD_NODE_SHUDDOWN:
                 print("shutdown")
                 rospy.signal_shutdown("MPNode.shudown() is called. ")
@@ -209,8 +210,7 @@ def main():
     pub_a = node_a.Publisher("chatter2", String, latch=True )
 
     # 動的にノードの設定が変えられるかテスト
-    """
-    for i in range(5):
+    for i in range(1):
         print("unregister")
         sub_b.unregister()
         time.sleep(2)
@@ -225,7 +225,6 @@ def main():
 
         pub_a = node_a.Publisher("chatter2", String )
         time.sleep(2)
-    """
 
     while not rospy.is_shutdown():
         # キューからデータを取り出す
