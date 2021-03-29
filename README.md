@@ -9,7 +9,8 @@ git clone https://github.com/naka-lab/ros_roscore_bridge.git
 ```
 
 ## 使い方
-[example.py](scripts/example.py)を参照
+- Publisher, Subscriber: [example.py](scripts/example.py)
+- Service: [example_service.py](scripts/example_service.py)
 
 ## 制限事項
 - プロセス間通信を利用している都合上，Publiser, Subscriberの細かな制御はできません．
