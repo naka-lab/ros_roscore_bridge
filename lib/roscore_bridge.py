@@ -18,8 +18,11 @@ CMD_SUB_NEW = 100
 CMD_SUB_SUBSCRIBE = 101
 CMD_SUB_UNREGISTER = 102
 
-CMD_NODE_SHUDDOWN = 200
+CMD_SRV_NEW = 200
+CMD_SRV_CALL = 201
+CMD_SRV_WAITFORSERVICE = 202
 
+CMD_NODE_SHUDDOWN = 1000
 
 
 class MPNodeClient():
@@ -27,6 +30,7 @@ class MPNodeClient():
     def __init__(self, node, que_size=0 ):
         self.node = node
         self.queue = queue.Queue()
+        self.que_size = que_size
 
         self.id = MPNodeClient.id_counter
         MPNodeClient.id_counter += 1
@@ -59,13 +63,21 @@ class MPSubscriber(MPNodeClient):
         super(MPSubscriber, self).__init__(node, que_size)
         self.topic_name = name
         self.topic_type = type_
-        self.que_size = que_size
 
     def get_message(self, timeout=None):
         return self._get_message( timeout )
 
     def unregister(self):
         self.node.put_cmd_queue( self.id, CMD_SUB_UNREGISTER, {} )
+
+
+class MPServiceProxy(MPNodeClient):
+    def __init__(self, node, name, type_ ):
+        super(MPServiceProxy, self).__init__(node, 1)
+
+    def __call__(self, *args ):
+        self.node.put_cmd_queue( self.id, CMD_SRV_CALL, {"args":args} )
+        return self._get_message()
 
 
 class MPNode():
@@ -142,17 +154,34 @@ class MPNode():
         self.put_cmd_queue( pub.id, CMD_PUB_NEW, args_dict )
 
         return pub
-    
-    #def start_node(self):
-    #    p = multiprocessing.Process(target=self.run )
-    #    p.start()
+
+    def ServiceProxy(self, name, service_class):
+        srv = MPServiceProxy( self, name, service_class )
+        self.mp_node_clients[srv.id] = srv
+        self.put_cmd_queue( srv.id, CMD_SRV_NEW, {"name":name, "service_class":service_class})
+        return srv
+
+    def wait_for_service(self, name, timeout=None):
+        class Wait(MPNodeClient):
+            def __init__(self, node, que_size ):
+                super(Wait, self).__init__(node, que_size)
+
+        wait = Wait( self, 1 )
+        self.mp_node_clients[wait.id] = wait
+        self.put_cmd_queue( wait.id, CMD_SRV_WAITFORSERVICE, {"service":name} )
+
+        wait._get_message( timeout )
 
     def shutdown(self):
         self.put_cmd_queue( -1, CMD_NODE_SHUDDOWN )
         
-
     def put_cmd_queue(self, sender_id, cmd, args_dict=None):
         self.queue_from_client.put( (sender_id, cmd, args_dict) )
+
+    def async_call_and_put_retval( self, sender_id,  func ):
+        t = threading.Thread( target=lambda : self.queue_to_client.put( (sender_id, func()) ) )
+        t.setDaemon(True)
+        t.start()
 
     def run( self ):
         print(self.node_name, "開始")
@@ -187,6 +216,13 @@ class MPNode():
             elif cmd==CMD_PUB_PUBLISH:
                 #print("publish: ", sender_id, args_dict )
                 ros_objects[sender_id].publish( args_dict["data"] )
+            elif cmd==CMD_SRV_NEW:
+                print("new service: ", sender_id, args_dict)
+                ros_objects[sender_id] = rospy.ServiceProxy( **args_dict )
+            elif cmd==CMD_SRV_CALL:
+                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id]( *args_dict["args"] ) )
+            elif cmd==CMD_SRV_WAITFORSERVICE:
+                self.async_call_and_put_retval( sender_id, lambda : rospy.wait_for_service( **args_dict ) )
             elif cmd==CMD_NODE_SHUDDOWN:
                 print("shutdown")
                 rospy.signal_shutdown("MPNode.shudown() is called. ")
@@ -197,7 +233,10 @@ def callback( data ):
     #print( "callback", data )
     pass
 
+
+from std_srvs.srv import *
 def main():
+ 
     # 接続先を設定
     node_a = MPNode( "http://127.0.0.1:11311", "A" )
     node_b = MPNode( "http://127.0.0.1:11312", "B" )
@@ -225,6 +264,12 @@ def main():
 
         pub_a = node_a.Publisher("chatter2", String )
         time.sleep(2)
+
+    # Serviceのテスト
+    print("wait for srv")
+    node_b.wait_for_service( "set_bool" )
+    srv = node_b.ServiceProxy( "set_bool", SetBool )
+    print("serv responce:", srv(True))
 
     while not rospy.is_shutdown():
         # キューからデータを取り出す
