@@ -25,7 +25,7 @@ CMD_SRV_WAITFORSERVICE = 202
 CMD_NODE_SHUDDOWN = 1000
 
 
-class MPNodeClient():
+class MPNodeClient(object):
     id_counter = 0
     def __init__(self, node, que_size=0 ):
         self.node = node
@@ -162,11 +162,7 @@ class MPNode():
         return srv
 
     def wait_for_service(self, name, timeout=None):
-        class Wait(MPNodeClient):
-            def __init__(self, node, que_size ):
-                super(Wait, self).__init__(node, que_size)
-
-        wait = Wait( self, 1 )
+        wait = MPNodeClient( self, 1 )
         self.mp_node_clients[wait.id] = wait
         self.put_cmd_queue( wait.id, CMD_SRV_WAITFORSERVICE, {"service":name} )
 
