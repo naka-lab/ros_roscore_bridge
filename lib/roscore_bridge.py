@@ -9,6 +9,8 @@ import os
 import queue
 import threading
 import time
+import roslib
+import actionlib
 
 
 CMD_PUB_NEW = 0
@@ -21,6 +23,12 @@ CMD_SUB_UNREGISTER = 102
 CMD_SRV_NEW = 200
 CMD_SRV_CALL = 201
 CMD_SRV_WAITFORSERVICE = 202
+
+CMD_ACT_NEW = 300
+CMD_ACT_SENDGOAL = 301
+CMD_ACT_WAITFORSERVER = 302
+CMD_ACT_WAITFORRESULT = 303
+CMD_ACT_GETRESULT = 304
 
 CMD_NODE_SHUDDOWN = 1000
 
@@ -79,6 +87,25 @@ class MPServiceProxy(MPNodeClient):
         self.node.put_cmd_queue( self.id, CMD_SRV_CALL, {"args":args} )
         return self._get_message()
 
+
+class MPActionClient(MPNodeClient):
+    def __init__(self, node ):
+        super(MPActionClient, self).__init__(node, 1)
+
+    def wait_for_server(self):
+        self.node.put_cmd_queue( self.id, CMD_ACT_WAITFORSERVER )
+        return self._get_message()
+
+    def send_goal(self, goal ):
+        self.node.put_cmd_queue( self.id, CMD_ACT_SENDGOAL, {"goal":goal} )
+
+    def wait_for_result(self):
+        self.node.put_cmd_queue( self.id, CMD_ACT_WAITFORRESULT )
+        self.result = self._get_message()
+
+    def get_result(self):
+        self.node.put_cmd_queue( self.id, CMD_ACT_GETRESULT )
+        return self._get_message()
 
 class MPNode():
     def __init__( self, master_uri, node_name ):
@@ -168,6 +195,12 @@ class MPNode():
 
         wait._get_message( timeout )
 
+    def SimpleActionClient(self, name, action_class):
+        act = MPActionClient( self )
+        self.mp_node_clients[act.id] = act
+        self.put_cmd_queue( act.id, CMD_ACT_NEW, {"ns":name, "ActionSpec":action_class})
+        return act
+
     def shutdown(self):
         self.put_cmd_queue( -1, CMD_NODE_SHUDDOWN )
         
@@ -219,6 +252,17 @@ class MPNode():
                 self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id]( *args_dict["args"] ) )
             elif cmd==CMD_SRV_WAITFORSERVICE:
                 self.async_call_and_put_retval( sender_id, lambda : rospy.wait_for_service( **args_dict ) )
+            elif cmd==CMD_ACT_NEW:
+                act = actionlib.SimpleActionClient( **args_dict )                
+                ros_objects[sender_id] = act
+            elif cmd==CMD_ACT_SENDGOAL:
+                ros_objects[sender_id].send_goal( **args_dict )
+            elif cmd==CMD_ACT_WAITFORSERVER:
+                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].wait_for_server() )
+            elif cmd==CMD_ACT_WAITFORRESULT:
+                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].wait_for_result() )
+            elif cmd==CMD_ACT_GETRESULT:
+                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].get_result() )
             elif cmd==CMD_NODE_SHUDDOWN:
                 print("shutdown")
                 rospy.signal_shutdown("MPNode.shudown() is called. ")
