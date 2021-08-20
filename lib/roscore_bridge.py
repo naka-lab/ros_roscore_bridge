@@ -166,26 +166,36 @@ class MPNode():
         while not rospy.is_shutdown():
             # キューにデータがあれば実行
             try:
-                sender_id, code = self.queue_codes.get(timeout=1)
+                sender_id, exec_code, eval_code = self.queue_codes.get(timeout=1)
             except queue.Empty:
                 continue
 
             # 実行
-            exec( code )
+            retval = None
+            if exec_code:
+                exec( exec_code )
+            
+            if eval_code:
+                retval = eval(eval_code)
 
             # 実行し終わったらClientへ通知
-            self.queue_to_client.put( (sender_id, None) )
+            self.queue_to_client.put( (sender_id, retval) )
 
     # 任意のコードを実行
     def exec( self, code, sync=True ):
-        run = MPNodeClient( self, 1 )
-        self.mp_node_clients[run.id] = run
-        self.put_cmd_queue( run.id, CMD_EXEC_CODE, {"code":code} )
+        exec = MPNodeClient( self, 1 )
+        self.mp_node_clients[exec.id] = exec
+        self.put_cmd_queue( exec.id, CMD_EXEC_CODE, {"exec_code":code, "eval_code":None} )
 
         if sync:
             # 実行が終了するまで待機
-            run._get_message()
+            exec._get_message()
 
+    def eval( self, code ):
+        eval = MPNodeClient( self, 1 )
+        self.mp_node_clients[eval.id] = eval
+        self.put_cmd_queue( eval.id, CMD_EXEC_CODE, {"exec_code":None, "eval_code":code} )
+        return eval._get_message()
 
     def Subscriber( self, name, type_, que_size=10, callback=None, **kwargs ):
         sub = MPSubscriber( self, name, type_, que_size )
@@ -298,7 +308,7 @@ class MPNode():
             elif cmd==CMD_ACT_GETRESULT:
                 self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].get_result() )
             elif cmd==CMD_EXEC_CODE:
-                self.queue_codes.put( (sender_id, args_dict["code"]) )
+                self.queue_codes.put( (sender_id, args_dict["exec_code"], args_dict["eval_code"]) )
             elif cmd==CMD_NODE_SHUDDOWN:
                 print("shutdown")
                 rospy.signal_shutdown("MPNode.shudown() is called. ")

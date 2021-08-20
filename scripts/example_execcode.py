@@ -18,7 +18,7 @@ import rospy
 
 pub = rospy.Publisher('chatter', String, queue_size=10)
 for i in range(100):
-    str = "hello world %d" % i
+    str = f"hello world {i}"
     pub.publish(str)
     time.sleep(0.1)
 """
@@ -39,8 +39,12 @@ def main():
     node_b.exec( "import rospy" )
     node_b.exec( "pub = rospy.Publisher('chatter', String, queue_size=10)" )
     for i in range(100):
-        node_b.exec( "str = 'hello world %d'" % i)
+        node_b.exec( f"str = 'hello world 2 {i}'" )
         node_b.exec( "pub.publish(str)" )
+
+        # 変数を取得
+        print( node_b.eval("str") )
+
         time.sleep(0.1)
     print("終了2")
 
