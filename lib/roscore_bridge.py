@@ -110,12 +110,14 @@ class MPActionClient(MPNodeClient):
         return self._get_message()
 
 class MPNode():
-    def __init__( self, master_uri, node_name ):
+    def __init__( self, master_uri, node_name, ros_ip=None, host_name=None ):
         self.queue_from_client = multiprocessing.Queue()
         self.queue_to_client = multiprocessing.Queue()
 
         self.node_name = node_name
         self.master_uri = master_uri
+        self.ros_ip = ros_ip
+        self.host_name = host_name
 
         self.mp_node_clients = {}
         self.publishers = {}
@@ -259,7 +261,14 @@ class MPNode():
 
         # ros_master_uriを書き換えてnodeを実行
         os.environ['ROS_MASTER_URI'] = self.master_uri
-        print(os.environ['ROS_MASTER_URI'])
+
+        if self.host_name!=None:
+            os.environ['ROS_HOSTNAME'] = self.host_name
+        if self.ros_ip!=None:
+            os.environ['ROS_IP'] = self.ros_ip
+        print(self.node_name, ": ROS_MASTER_URI->", os.environ['ROS_MASTER_URI'])
+        print(self.node_name, ": ROS_HOSTNAME->", os.environ['ROS_HOSTNAME'] if "ROS_HOSTNAME" in os.environ else "NONE" )
+        print(self.node_name, ": ROS_IP->", os.environ['ROS_IP'] if "ROS_IP" in os.environ else "NONE" )
         rospy.init_node( self.node_name )
 
         t = threading.Thread( target=self.th_run_code )
