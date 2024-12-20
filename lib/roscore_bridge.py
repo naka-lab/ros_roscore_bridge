@@ -11,6 +11,7 @@ import threading
 import time
 import roslib
 import actionlib
+from functools import partial
 
 
 CMD_PUB_NEW = 0
@@ -250,7 +251,7 @@ class MPNode():
         self.queue_from_client.put( (sender_id, cmd, args_dict) )
 
     def async_call_and_put_retval( self, sender_id,  func ):
-        t = threading.Thread( target=lambda : self.queue_to_client.put( (sender_id, func()) ) )
+        t = threading.Thread( target=self.queue_to_client.put, args=((sender_id, func()),) )
         t.setDaemon(True)
         t.start()
 
@@ -302,20 +303,20 @@ class MPNode():
                 print("new service: ", sender_id, args_dict)
                 ros_objects[sender_id] = rospy.ServiceProxy( **args_dict )
             elif cmd==CMD_SRV_CALL:
-                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id]( *args_dict["args"] ) )
+                self.async_call_and_put_retval( sender_id, partial( ros_objects[sender_id], *args_dict["args"] ) )
             elif cmd==CMD_SRV_WAITFORSERVICE:
-                self.async_call_and_put_retval( sender_id, lambda : rospy.wait_for_service( **args_dict ) )
+                self.async_call_and_put_retval( sender_id, partial( rospy.wait_for_service, **args_dict ) )
             elif cmd==CMD_ACT_NEW:
                 act = actionlib.SimpleActionClient( **args_dict )                
                 ros_objects[sender_id] = act
             elif cmd==CMD_ACT_SENDGOAL:
                 ros_objects[sender_id].send_goal( **args_dict )
             elif cmd==CMD_ACT_WAITFORSERVER:
-                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].wait_for_server() )
+                self.async_call_and_put_retval( sender_id, ros_objects[sender_id].wait_for_server )
             elif cmd==CMD_ACT_WAITFORRESULT:
-                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].wait_for_result() )
+                self.async_call_and_put_retval( sender_id, ros_objects[sender_id].wait_for_result )
             elif cmd==CMD_ACT_GETRESULT:
-                self.async_call_and_put_retval( sender_id, lambda : ros_objects[sender_id].get_result() )
+                self.async_call_and_put_retval( sender_id, ros_objects[sender_id].get_result )
             elif cmd==CMD_EXEC_CODE:
                 self.queue_codes.put( (sender_id, args_dict["exec_code"], args_dict["eval_code"]) )
             elif cmd==CMD_NODE_SHUDDOWN:
