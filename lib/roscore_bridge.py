@@ -1,16 +1,13 @@
 #!/usr/bin/env python
 from __future__ import print_function, unicode_literals
-import rospy
-from std_msgs.msg import String
 import time
 import multiprocessing
 import multiprocessing.queues
 import os
+import sys
 import queue
 import threading
 import time
-import roslib
-import actionlib
 from functools import partial
 
 
@@ -32,9 +29,13 @@ CMD_ACT_WAITFORRESULT = 303
 CMD_ACT_GETRESULT = 304
 
 CMD_EXEC_CODE = 400
-
 CMD_NODE_SHUDDOWN = 1000
 
+
+ROS1_PATH=None
+def set_ros1_path( path ):
+    global ROS1_PATH
+    ROS1_PATH = path
 
 class MPNodeClient(object):
     id_counter = 0
@@ -124,6 +125,7 @@ class MPNode():
         self.publishers = {}
 
         self.queue_codes = queue.Queue()
+        self.is_runnning = True
 
         t = threading.Thread( target=self.th_transfer_subscribed_data )
         t.setDaemon(True)
@@ -140,7 +142,7 @@ class MPNode():
 
     # 受信したデータを各MPSubscriberへ転送するスレッド（メインプロセスで実行）
     def th_transfer_subscribed_data(self):
-        while not rospy.is_shutdown():
+        while self.is_runnning:
             try:
                 sub_id, data = self.queue_to_client.get(timeout=1)
             except queue.Empty:
@@ -154,7 +156,7 @@ class MPNode():
 
     # ユーザが設定したcallbackを呼ぶスレッド（メインプロセスで実行）
     def th_call_user_callback( self,  user_callback, sub ):
-        while not rospy.is_shutdown():
+        while self.is_runnning:
             # キューにデータがあれば実行
             try:
                 data = sub.get_message(timeout=1)
@@ -166,7 +168,7 @@ class MPNode():
 
     # 任意のコードを実行するスレッド（クライアントプロセスで実行）
     def th_run_code( self ):
-        while not rospy.is_shutdown():
+        while self.is_runnning:
             # キューにデータがあれば実行
             try:
                 sender_id, exec_code, eval_code = self.queue_codes.get(timeout=1)
@@ -256,6 +258,15 @@ class MPNode():
         t.start()
 
     def run( self ):
+        # ROS1のパスを追加
+        if ROS1_PATH is not None:
+            sys.path.insert(0, ROS1_PATH)
+
+        # 別プロセスでimportすることで，メインプロセスへの影響を最小限に抑える
+        import rospy
+        import roslib
+        import actionlib
+
         print(self.node_name, "開始")
 
         ros_objects = {}
@@ -284,14 +295,11 @@ class MPNode():
                 continue
 
             if cmd==CMD_SUB_NEW:
-                print("new subscribe: ", sender_id, args_dict )
                 args_dict["callback"] = self.cb_data_recieved
                 args_dict["callback_args"] = (sender_id,)
                 sub = rospy.Subscriber( **args_dict )
                 ros_objects[sender_id] = sub
             elif cmd==CMD_PUB_NEW:
-                print("new publisher: ", sender_id, args_dict )
-                print("args", args_dict)
                 pub = rospy.Publisher( **args_dict )
                 ros_objects[sender_id] = pub
             elif cmd==CMD_SUB_UNREGISTER:
@@ -300,7 +308,6 @@ class MPNode():
                 #print("publish: ", sender_id, args_dict )
                 ros_objects[sender_id].publish( args_dict["data"] )
             elif cmd==CMD_SRV_NEW:
-                print("new service: ", sender_id, args_dict)
                 ros_objects[sender_id] = rospy.ServiceProxy( **args_dict )
             elif cmd==CMD_SRV_CALL:
                 self.async_call_and_put_retval( sender_id, partial( ros_objects[sender_id], *args_dict["args"] ) )
@@ -323,6 +330,8 @@ class MPNode():
                 print("shutdown")
                 rospy.signal_shutdown("MPNode.shudown() is called. ")
 
+        self.is_runnning = False
+
 
 
 def callback( data ):
@@ -330,8 +339,9 @@ def callback( data ):
     pass
 
 
-from std_srvs.srv import *
+
 def main():
+    from std_srvs.srv import String
  
     # 接続先を設定
     node_a = MPNode( "http://127.0.0.1:11311", "A" )
