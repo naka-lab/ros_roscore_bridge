@@ -65,9 +65,11 @@ class MPPublisher(MPNodeClient):
         self.topic_name = name
         self.topic_type = type_
 
-
     def publish(self, data):
         self.node.put_cmd_queue( self.id, CMD_PUB_PUBLISH, {"data":data} )
+
+    def __str__(self):
+        return f"MPPublisher: {self.node.node_name}.{self.topic_name}"
 
 
 class MPSubscriber(MPNodeClient):
@@ -82,20 +84,27 @@ class MPSubscriber(MPNodeClient):
     def unregister(self):
         self.node.put_cmd_queue( self.id, CMD_SUB_UNREGISTER, {} )
 
+    def __str__(self):
+        return f"MPSubscriber: {self.node.node_name}.{self.topic_name}"
+
 
 class MPServiceProxy(MPNodeClient):
     def __init__(self, node, name, type_ ):
         super(MPServiceProxy, self).__init__(node, 1)
+        self.service_name = name
+        self.service_type = type_
 
     def __call__(self, *args ):
         self.node.put_cmd_queue( self.id, CMD_SRV_CALL, {"args":args} )
         return self._get_message()
 
+    def __str__(self):
+        return f"MPServiceProxy: {self.node.node_name}.{self.service_name}"
 
 class MPActionClient(MPNodeClient):
-    def __init__(self, node ):
+    def __init__(self, node, action_name="" ):
         super(MPActionClient, self).__init__(node, 1)
-
+        self.action_name = action_name
     def wait_for_server(self):
         self.node.put_cmd_queue( self.id, CMD_ACT_WAITFORSERVER )
         return self._get_message()
@@ -110,6 +119,10 @@ class MPActionClient(MPNodeClient):
     def get_result(self):
         self.node.put_cmd_queue( self.id, CMD_ACT_GETRESULT )
         return self._get_message()
+
+    def __str__(self):
+        return f"MPActionClient: {self.node.node_name}.{self.action_name}"
+
 
 class MPNode():
     def __init__( self, master_uri, node_name, ros_ip=None, host_name=None ):
@@ -241,7 +254,7 @@ class MPNode():
         wait._get_message( timeout )
 
     def SimpleActionClient(self, name, action_class):
-        act = MPActionClient( self )
+        act = MPActionClient( self, name )
         self.mp_node_clients[act.id] = act
         self.put_cmd_queue( act.id, CMD_ACT_NEW, {"ns":name, "ActionSpec":action_class})
         return act
