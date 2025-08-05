@@ -253,7 +253,13 @@ class MPNode():
         self.queue_from_client.put( (sender_id, cmd, args_dict) )
 
     def async_call_and_put_retval( self, sender_id,  func ):
-        t = threading.Thread( target=self.queue_to_client.put, args=((sender_id, func()),) )
+        def _thread_func( queue, sender_id ,func ):
+            try:
+                queue.put( (sender_id, func()) )
+            except Exception as e:
+                print("\033[31m Error in calling function:", type(e), e)
+                queue.put( (sender_id, None) )
+        t = threading.Thread( target=_thread_func, args=(self.queue_to_client, sender_id, func) )
         t.setDaemon(True)
         t.start()
 
