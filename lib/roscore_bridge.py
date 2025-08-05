@@ -270,7 +270,7 @@ class MPNode():
             try:
                 queue.put( (sender_id, func()) )
             except Exception as e:
-                print("\033[31m Error in calling function:", type(e), e)
+                print("\033[31m Error in calling function:", type(e), e, "\033[0m")
                 queue.put( (sender_id, None) )
         t = threading.Thread( target=_thread_func, args=(self.queue_to_client, sender_id, func) )
         t.setDaemon(True)
